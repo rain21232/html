@@ -352,18 +352,8 @@
                 // 替换为您的实际API地址
                 const apiUrl = 'https://rain21232.pythonanywhere.com/predict';
                 
-                // ===== 添加超时控制（核心修改）=====
-                // 创建控制器用于中止请求
-                const controller = new AbortController();
-                // 设置5分钟超时（300000毫秒 = 5分钟）
-                const timeoutMs = 600000; 
-                // 超时后中止请求
-                const timeoutId = setTimeout(() => {
-                    controller.abort(); // 主动终止请求
-                }, timeoutMs);
-                
-                // 调用API，关联超时控制器
-                const response = await fetch(apiUrl, {
+                // ===== 修改后的超时控制（兼容性版本）=====
+                let fetchOptions = {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -373,12 +363,34 @@
                         background_info: background,
                         time_choice: timeChoice,
                         time_data: timeData
-                    }),
-                    signal: controller.signal // 将控制器信号传入请求
-                });
+                    })
+                };
                 
-                // 清除超时定时器（请求成功则无需超时）
-                clearTimeout(timeoutId);
+                let timeoutId;
+                
+                // 检查浏览器是否支持 AbortController
+                if (typeof AbortController !== 'undefined') {
+                    const controller = new AbortController();
+                    const timeoutMs = 600000; // 10分钟超时
+                    
+                    timeoutId = setTimeout(() => {
+                        controller.abort(); // 主动终止请求
+                    }, timeoutMs);
+                    
+                    // 将控制器信号添加到请求选项
+                    fetchOptions.signal = controller.signal;
+                } else {
+                    console.warn("当前浏览器不支持 AbortController，无法设置请求超时。");
+                }
+                
+                // 调用API
+                const response = await fetch(apiUrl, fetchOptions);
+                
+                // 如果设置了超时定时器，现在清除它
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                }
+                // ===== 修改结束 =====
                 
                 // 检查响应状态
                 if (!response.ok) {
@@ -461,6 +473,7 @@
     </script>
 </body>
 </html>
+
 
 
 
