@@ -352,7 +352,17 @@
                 // 替换为您的实际API地址
                 const apiUrl = 'https://rain21232.pythonanywhere.com/predict';
                 
-                // 调用API
+                         // ===== 添加超时控制（核心修改）=====
+                // 创建控制器用于中止请求
+                const controller = new AbortController();
+                // 设置5分钟超时（300000毫秒 = 5分钟）
+                const timeoutMs = 600000; 
+                // 超时后中止请求
+                const timeoutId = setTimeout(() => {
+                    controller.abort(); // 主动终止请求
+                }, timeoutMs);
+                
+                // 调用API，关联超时控制器
                 const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: {
@@ -363,8 +373,12 @@
                         background_info: background,
                         time_choice: timeChoice,
                         time_data: timeData
-                    })
+                    }),
+                    signal: controller.signal // 将控制器信号传入请求
                 });
+                
+                // 清除超时定时器（请求成功则无需超时）
+                clearTimeout(timeoutId);
                 
                 // 检查响应状态
                 if (!response.ok) {
@@ -377,7 +391,12 @@
                 // 返回预测结果
                 return data.answer;
             } catch (error) {
-                throw new Error(`预测失败: ${error.message}`);
+                // 捕获超时错误并友好提示
+                if (error.name === 'AbortError') {
+                    throw new Error(`预测超时，请检查网络或简化问题后重试`);
+                } else {
+                    throw new Error(`预测失败: ${error.message}`);
+                }
             }
         }
         
@@ -432,9 +451,9 @@
             resultContent.innerHTML = `
                 <div class="loading">
                     <div class="spinner"></div>
-                    <p>铉錚猫猫掐指一算中，请等待1分钟左右。客官稍安勿躁，喵...</p>
+                    <p>铉錚猫猫掐指一算中，请等待3-5分钟左右。客官稍安勿躁，喵...</p>
                     <p style="margin-top: 15px; color: #8B4513; font-size: 0.9rem;">
-                        正在使用奇门遁甲排盘算法，结合您的输入时间进行深度分析
+                        正在使用铉錚算法，结合您的输入时间进行深度分析
                     </p>
                 </div>
             `;
@@ -442,6 +461,7 @@
     </script>
 </body>
 </html>
+
 
 
 
