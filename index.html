@@ -332,7 +332,7 @@
             customTimeInputs.style.display = this.checked ? 'block' : 'none';
         });
         
-        // 获取预测结果
+        // 获取预测结果（流式版本）
         async function getPrediction(question, background) {
             try {
                 // 获取时间选择
@@ -349,11 +349,10 @@
                     timeData.lon = parseFloat(document.getElementById('lon').value) || 106.40;
                 }
                 
-                // 替换为您的实际API地址
-                const apiUrl = 'https://rain21232.pythonanywhere.com/predict';
+                // 使用流式端点
+                const apiUrl = 'https://rain21232.pythonanywhere.com/predict_stream';
                 
-                // ===== 修改后的超时控制（兼容性版本）=====
-                let fetchOptions = {
+                const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -364,50 +363,74 @@
                         time_choice: timeChoice,
                         time_data: timeData
                     })
-                };
+                });
                 
-                let timeoutId;
-                
-                // 检查浏览器是否支持 AbortController
-                if (typeof AbortController !== 'undefined') {
-                    const controller = new AbortController();
-                    const timeoutMs = 600000; // 10分钟超时
-                    
-                    timeoutId = setTimeout(() => {
-                        controller.abort(); // 主动终止请求
-                    }, timeoutMs);
-                    
-                    // 将控制器信号添加到请求选项
-                    fetchOptions.signal = controller.signal;
-                } else {
-                    console.warn("当前浏览器不支持 AbortController，无法设置请求超时。");
-                }
-                
-                // 调用API
-                const response = await fetch(apiUrl, fetchOptions);
-                
-                // 如果设置了超时定时器，现在清除它
-                if (timeoutId) {
-                    clearTimeout(timeoutId);
-                }
-                // ===== 修改结束 =====
-                
-                // 检查响应状态
                 if (!response.ok) {
                     throw new Error(`请求失败: ${response.status}`);
                 }
                 
-                // 解析JSON数据
-                const data = await response.json();
+                // 处理流式响应
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let result = '';
                 
-                // 返回预测结果
-                return data.answer;
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6); // 移除 "data: " 前缀
+                            
+                            try {
+                                const parsed = JSON.parse(data);
+                                
+                                if (parsed.content) {
+                                    result += parsed.content;
+                                    // 实时更新结果显示
+                                    updatePartialResult(result);
+                                } else if (parsed.error) {
+                                    throw new Error(parsed.error);
+                                } else if (parsed.done) {
+                                    return result;
+                                }
+                            } catch (e) {
+                                console.error('解析响应数据失败:', e);
+                            }
+                        }
+                    }
+                }
+                
+                return result;
+                
             } catch (error) {
-                // 捕获超时错误并友好提示
                 if (error.name === 'AbortError') {
                     throw new Error(`预测超时，请检查网络或简化问题后重试`);
                 } else {
                     throw new Error(`预测失败: ${error.message}`);
+                }
+            }
+        }
+        
+        // 更新部分结果的函数
+        function updatePartialResult(result) {
+            const resultContainer = document.getElementById('result-content');
+            if (resultContainer) {
+                // 如果当前显示的是加载状态，则替换为结果
+                if (resultContainer.querySelector('.loading')) {
+                    resultContainer.innerHTML = `
+                        <h3 class="result-title">铉錚预测结果</h3>
+                        <div class="result-content">${cleanMarkdown(result).replace(/\n/g, '<br>')}</div>
+                    `;
+                } else {
+                    // 否则更新结果内容
+                    const resultDiv = resultContainer.querySelector('.result-content');
+                    if (resultDiv) {
+                        resultDiv.innerHTML = cleanMarkdown(result).replace(/\n/g, '<br>');
+                    }
                 }
             }
         }
@@ -430,14 +453,11 @@
             showLoading();
             
             try {
-                // 获取预测结果
-                const answer = await getPrediction(question, background);
+                // 获取预测结果（流式）
+                await getPrediction(question, background);
                 
-                // 显示结果
-                resultContent.innerHTML = `
-                    <h3 class="result-title">铉錚预测结果</h3>
-                    <div class="result-content">${cleanMarkdown(answer).replace(/\n/g, '<br>')}</div>
-                `;
+                // 流式处理中已经逐步更新了结果，所以这里不需要再次更新
+                
             } catch (error) {
                 // 显示错误
                 resultContent.innerHTML = `
@@ -473,9 +493,3 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-
